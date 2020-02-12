@@ -26,10 +26,10 @@
 #include <plat/regs-dsim.h>
 #include <mach/dsim.h>
 #include <mach/mipi_ddi.h>
-#ifdef CONFIG_FB
-#include <linux/notifier.h>
-#include <linux/fb.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h>
 #endif
+
 #include "s5p-dsim.h"
 #include "s3cfb.h"
 #include "s6e8aa0_gamma_l.h"
@@ -108,8 +108,7 @@ struct lcd_info {
 	struct lcd_device		*ld;
 	struct backlight_device		*bd;
 	struct lcd_platform_data	*lcd_pd;
-	struct notifier_block fb_notif;
-	bool fb_suspended;
+	struct early_suspend		early_suspend;
 
 	unsigned char			id[LDI_ID_LEN];
 
@@ -190,8 +189,8 @@ static unsigned int elvss_offset_table[ELVSS_STATUS_MAX] = {
 };
 #endif
 
-extern void (*lcd_fb_suspend)(void);
-extern void (*lcd_fb_resume)(void);
+extern void (*lcd_early_suspend)(void);
+extern void (*lcd_late_resume)(void);
 
 #if defined(GPIO_OLED_DET)
 static void oled_detection_work(struct work_struct *work)
@@ -1281,16 +1280,13 @@ static ssize_t auto_brightness_store(struct device *dev,
 
 static DEVICE_ATTR(auto_brightness, 0644, auto_brightness_show, auto_brightness_store);
 
-#ifdef CONFIG_FB
+#ifdef CONFIG_HAS_EARLYSUSPEND
 struct lcd_info *g_lcd;
 
-void s6e8ax0_fb_suspend(void)
+void s6e8ax0_early_suspend(void)
 {
 	struct lcd_info *lcd = g_lcd;
 	int err = 0;
-
-	if (lcd->fb_suspended)
-		return;
 
 	set_dsim_lcd_enabled(0);
 
@@ -1308,17 +1304,12 @@ void s6e8ax0_fb_suspend(void)
 	s6e8ax0_power(lcd, FB_BLANK_POWERDOWN);
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
-	lcd->fb_suspended = true;
-
 	return ;
 }
 
-void s6e8ax0_fb_resume(void)
+void s6e8ax0_late_resume(void)
 {
 	struct lcd_info *lcd = g_lcd;
-
-	if (!lcd->fb_suspended)
-		return;
 
 	dev_info(&lcd->ld->dev, "+%s\n", __func__);
 	s6e8ax0_power(lcd, FB_BLANK_UNBLANK);
@@ -1330,8 +1321,6 @@ void s6e8ax0_fb_resume(void)
 	dev_info(&lcd->ld->dev, "-%s\n", __func__);
 
 	set_dsim_lcd_enabled(1);
-
-	lcd->fb_suspended = false;
 
 	return ;
 }
@@ -1463,7 +1452,6 @@ static int s6e8ax0_probe(struct device *dev)
 	lcd->ldi_enable = 1;
 	lcd->connected = 1;
 	lcd->auto_brightness = 0;
-	lcd->fb_suspended = false;
 
 	ret = device_create_file(&lcd->ld->dev, &dev_attr_power_reduce);
 	if (ret < 0)
@@ -1553,8 +1541,8 @@ static int s6e8ax0_probe(struct device *dev)
 	}
 #endif
 
-	lcd_fb_suspend = s6e8ax0_fb_suspend;
-	lcd_fb_resume = s6e8ax0_fb_resume;
+	lcd_early_suspend = s6e8ax0_early_suspend;
+	lcd_late_resume = s6e8ax0_late_resume;
 
 	return 0;
 
